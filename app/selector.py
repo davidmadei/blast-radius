@@ -28,6 +28,9 @@ RUN_OVERHEAD_MS = 450      # CPU of one child: pytest session + sqlglot import
 FILE_OVERHEAD_MS = 40      # importing / collecting one test module
 CPU_FACTOR = 1.15          # child CPU per recorded test second
 P_FAIL = 0.5
+DIFF_MAX_MODS = int(os.environ.get("BR_DIFF_MODS") or "40")
+DIFF_MIN_MS = int(os.environ.get("BR_DIFF_MS") or "3000")
+CPU_W = float(os.environ.get("BR_W") or "2.5")   # board CPU seconds per CPU second estimated here
 
 
 def log(*a):
@@ -120,7 +123,7 @@ def plan(cands, dur, fileof, p_fail=P_FAIL):
     """-> (static_set, run_set, est_cost_ms)"""
     T = sorted(cands, key=lambda i: -dur[i])
     best = None
-    c0 = run_cost(T, dur, fileof) + (p_fail * (WORKER_MS + 50) if T else 0)
+    c0 = CPU_W * run_cost(T, dur, fileof) + (p_fail * (WORKER_MS + 50) if T else 0)
     best = (c0, [], T)
     if T:
         cs, _ = best_pack(T, dur)
@@ -141,7 +144,7 @@ def plan(cands, dur, fileof, p_fail=P_FAIL):
                     absorbed.append(i)
                 else:
                     left.append(i)
-            c = mk + WORKER_MS * k + run_cost(left, dur, fileof)
+            c = mk + WORKER_MS * k + CPU_W * run_cost(left, dur, fileof)
             if c < best[0]:
                 best = (c, S + absorbed, left)
     return best[1], best[2], best[0]
@@ -193,6 +196,11 @@ def main():
     digest_mods = set()
     for c, j in jobs.items():
         j["diffmods"] = attrdiff_modules(m, j)
+        if j["diffmods"]:
+            cc = [i for i in range(N) if j["mask"] >> i & 1]
+            # narrowing must be able to pay for importing the modules and running the diff
+            if len(j["diffmods"]) > DIFF_MAX_MODS or best_pack(cc, dur)[0] < DIFF_MIN_MS:
+                j["diffmods"] = None
         digest_mods |= set(j["diffmods"] or ())
     pristine = None
     if digest_mods and not NORUN:
@@ -207,6 +215,9 @@ def main():
     jobs_ctx.update(m=m, N=N, dur=dur, fileof=fileof, num=num, pristine=pristine)
 
     # build trees + check that patched python compiles
+    # (children that only import sqlglot need none of pytest/pandas)
+    if any(jobs[c].get("run") or jobs[c].get("kind") == "diff" for c in order):
+        ensure_preload()
     order.sort(key=lambda c: (jobs[c].get("kind") != "diff", -sum(dur[i] for i in jobs[c].get("run", []))))
     running = {}
     slots = list(range(PAR))
@@ -398,6 +409,16 @@ def attrdiff_modules(m, j):
     return sorted(out | mods)
 
 
+_PRELOADED = []
+
+
+def ensure_preload():
+    """Heavy imports happen in the parent only when some child will be forked."""
+    if not _PRELOADED and not NORUN:
+        _PRELOADED.append(1)
+        runner.preload()
+
+
 def run_pristine_digests(mods):
     tdir = os.path.join(TMP, "w0")
     try:
@@ -503,6 +524,4 @@ def wait_any(running):
 if __name__ == "__main__":
     for k in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
         os.environ.setdefault(k, "1")
-    if not NORUN:
-        runner.preload()
     main()

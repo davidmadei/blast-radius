@@ -354,6 +354,12 @@ class _IsEq(ast.NodeTransformer):
 def ast_same(src, new, lines):
     try:
         a, b = ast.parse(src), ast.parse(new)
+        if _body_eq(_strip_doc(a.body), _strip_doc(b.body), lines):
+            return True
+        sl = src.splitlines()
+        if not any(1 <= ln <= len(sl) and (" is " in sl[ln - 1] or "==" in sl[ln - 1] or "!=" in sl[ln - 1])
+                   for ln in lines):
+            return False
         a, b = _IsEq().visit(a), _IsEq().visit(b)
         return _body_eq(_strip_doc(a.body), _strip_doc(b.body), lines)
     except SyntaxError:
