@@ -28,9 +28,9 @@ RUN_OVERHEAD_MS = 450      # CPU of one child: pytest session + sqlglot import
 FILE_OVERHEAD_MS = 40      # importing / collecting one test module
 CPU_FACTOR = 1.15          # child CPU per recorded test second
 P_FAIL = 0.5
-DIFF_MAX_MODS = int(os.environ.get("BR_DIFF_MODS") or "40")
+DIFF_MAX_MODS = int(os.environ.get("BR_DIFF_MODS") or "100000")
 DIFF_MIN_MS = int(os.environ.get("BR_DIFF_MS") or "3000")
-CPU_W = float(os.environ.get("BR_W") or "2.5")   # board CPU seconds per CPU second estimated here
+CPU_W = float(os.environ.get("BR_W") or "1.15")  # board CPU seconds per estimated test CPU second
 
 
 def log(*a):
