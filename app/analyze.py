@@ -334,9 +334,28 @@ def removed_name_users(m, root, path, names):
     return mask
 
 
+def _singleton(n):
+    """None, or an Enum member written Class.MEMBER: `is` and `==` agree on these."""
+    if isinstance(n, ast.Constant):
+        return n.value is None
+    return (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id[:1].isupper()
+            and not n.value.id.isupper() and n.attr.isupper() and len(n.attr) > 1)
+
+
+class _IsEq(ast.NodeTransformer):
+    def visit_Compare(self, node):
+        self.generic_visit(node)
+        if len(node.ops) == 1 and isinstance(node.ops[0], (ast.Is, ast.IsNot, ast.Eq, ast.NotEq)) \
+                and _singleton(node.comparators[0]):
+            node.ops = [ast.Eq() if isinstance(node.ops[0], (ast.Is, ast.Eq)) else ast.NotEq()]
+        return node
+
+
 def ast_same(src, new, lines):
     try:
-        return _body_eq(_strip_doc(ast.parse(src).body), _strip_doc(ast.parse(new).body), lines)
+        a, b = ast.parse(src), ast.parse(new)
+        a, b = _IsEq().visit(a), _IsEq().visit(b)
+        return _body_eq(_strip_doc(a.body), _strip_doc(b.body), lines)
     except SyntaxError:
         return False
 
